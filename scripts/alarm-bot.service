@@ -1,0 +1,14 @@
+[Unit]
+Description=Bluefors Alarm Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/alarm-bot
+ExecStart=/opt/alarm-bot/alarm-bot run
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
