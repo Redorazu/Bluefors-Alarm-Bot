@@ -240,6 +240,7 @@ GET {BASE_URL}/values/?key={API_KEY}&recursion=-1&style=flat&fields=...
 |--------|----------|--------|
 | `help` | Block Kit（分區說明） | 全頻道 |
 | `status` / `status <metric_id>` | Block Kit（見下方範例） | 全頻道 |
+| `metrics` | Block Kit（metric_id 與追蹤狀態） | 全頻道 |
 | `alerts` | Block Kit（每則示警一區塊，最多 20 筆） | 全頻道 |
 | 其餘子指令 | 純文字 | 全頻道 |
 
@@ -250,6 +251,7 @@ GET {BASE_URL}/values/?key={API_KEY}&recursion=-1&style=flat&fields=...
 | `help` | 完整說明（預設） |
 | `status` | 即時監控讀數（Block Kit，依 category 分區） |
 | `status <metric_id>` | 單一指標（Block Kit） |
+| `metrics` | 所有 metric_id 與追蹤狀態（Block Kit） |
 | `paths` | 檢查 `value_path` 是否存在於最新 snapshot |
 | `alerts` | 進行中示警（Block Kit） |
 | `phase` | 運行狀態（升溫 / 低溫）與升溫詳情 |
@@ -523,7 +525,8 @@ Slack 互動（指令、按鈕、thread）直接呼叫 `AlertManager` / `SlackNo
 | `build_status_blocks` | `/bluefors status` 全量讀數 |
 | `build_status_single_blocks` | `/bluefors status <metric_id>` |
 | `build_alerts_list_blocks` | `/bluefors alerts` |
-| `build_help_blocks` | `/bluefors help` |
+| `build_help_blocks` | `/bluefors help`（指令與 metric_id 上下分區） |
+| `build_metrics_list_blocks` | `/bluefors metrics` |
 | `build_status_text` | thread「查看狀態」純文字版 |
 | `SlashResponse` | `{ text, blocks? }`，供 `respond_in_channel` 使用 |
 

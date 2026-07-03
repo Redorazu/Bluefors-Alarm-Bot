@@ -5,8 +5,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from alarm_bot.bluefors.extractor import extract_all
 from alarm_bot.bluefors.models import VALID_SAMPLE_STATUSES, MetricReading, SystemSnapshot
+from alarm_bot.bluefors.system_info import display_system_name, display_system_version
 from alarm_bot.config import AppYamlConfig, MetricConfig
-from alarm_bot.monitoring.metric_tracking import should_show_in_status
+from alarm_bot.monitoring.metric_tracking import (
+    describe_tracking_status,
+    should_show_in_status,
+    should_track_metric,
+)
 from alarm_bot.state.store import AlertRecord
 from alarm_bot.time_utils import format_local_timestamp
 from alarm_bot.value_formatter import format_metric_value
@@ -32,6 +37,7 @@ CATEGORY_DISPLAY_ORDER: tuple[str | None, ...] = (
 )
 
 MAX_ALERT_BLOCKS = 20
+MAX_BLOCK_FIELD_CHARS = 1900
 MULTI_COLUMN_CATEGORIES: frozenset[str | None] = frozenset({"temperature", "pressure"})
 
 
@@ -44,6 +50,7 @@ class SlashResponse:
 HELP_TEXT = """*Bluefors Bot 指令*
 • `/bluefors status` — 即時監控讀數
 • `/bluefors status <metric_id>` — 單一指標
+• `/bluefors metrics` — 指標清單與追蹤狀態
 • `/bluefors alerts` — 進行中示警
 • `/bluefors phase` — 運行狀態（升溫 / 低溫）
 • `/bluefors warmup` — 升溫模式狀態
@@ -207,7 +214,7 @@ def build_recovery_blocks(alert: AlertRecord) -> list[dict]:
 def format_sample_status_suffix(metric: MetricConfig, reading: MetricReading) -> str:
     if reading.value_type == "sample_status":
         return ""
-    if metric.id == "magnet_enabled":
+    if metric.category == "sensor_connection" and metric.value_type == "int":
         return ""
     status = reading.sample_status
     if not status:
@@ -233,24 +240,6 @@ def format_snapshot_timestamp(fetched_at: datetime) -> str:
 def _status_mode_label(warmup_status: dict | None) -> str:
     warmup = warmup_status or {}
     return "升溫模式" if warmup.get("active") else "低溫模式"
-
-
-def _display_system_name(system_info: dict | None, default_system_name: str) -> str:
-    if not system_info:
-        return default_system_name
-    name = str(system_info.get("system_name", "")).strip()
-    return name or default_system_name
-
-
-def _display_system_version(system_info: dict | None) -> str:
-    if not system_info:
-        return "n/a"
-    for key in ("sw_version", "system_version", "api_version"):
-        val = system_info.get(key)
-        text = str(val).strip() if val is not None else ""
-        if text:
-            return text
-    return "n/a"
 
 
 def collect_status_groups(
@@ -286,8 +275,8 @@ def build_status_text(
 
     if system_info:
         lines.append(
-            f"系統: {_display_system_name(system_info, default_system_name)} | "
-            f"版本: {_display_system_version(system_info)}"
+            f"系統: {display_system_name(system_info, default_system_name)} | "
+            f"版本: {display_system_version(system_info)}"
         )
     if snapshot is None:
         lines.append("_尚無快照資料，請稍後再試。_")
@@ -346,8 +335,8 @@ def build_status_blocks(
     )
     if system_info:
         summary += (
-            f"\n*系統:* {_display_system_name(system_info, default_system_name)} | "
-            f"*版本:* {_display_system_version(system_info)}"
+            f"\n*系統:* {display_system_name(system_info, default_system_name)} | "
+            f"*版本:* {display_system_version(system_info)}"
         )
 
     blocks: list[dict] = [
@@ -496,57 +485,101 @@ def build_alerts_list_blocks(alerts: list[AlertRecord]) -> SlashResponse:
     return SlashResponse(text=f"進行中的示警: {len(alerts)}", blocks=blocks)
 
 
-def build_help_blocks() -> SlashResponse:
+def _group_metrics_by_category(
+    metrics: list[MetricConfig],
+) -> dict[str | None, list[MetricConfig]]:
+    groups: dict[str | None, list[MetricConfig]] = defaultdict(list)
+    for metric in metrics:
+        groups[metric.category].append(metric)
+    return groups
+
+
+def _format_metric_id_line(metric: MetricConfig) -> str:
+    return f"• `{metric.id}` — {metric.name}"
+
+
+def build_metric_id_reference_text(metrics: list[MetricConfig]) -> str:
+    if not metrics:
+        return "*可查詢 metric_id*\n_（無設定指標）_"
+
+    lines = ["*可查詢 metric_id*"]
+    for category in CATEGORY_DISPLAY_ORDER:
+        items = _group_metrics_by_category(metrics).get(category)
+        if not items:
+            continue
+        lines.append(f"*{CATEGORY_LABELS[category]}*")
+        lines.extend(_format_metric_id_line(metric) for metric in items)
+    return "\n".join(lines)
+
+
+def _help_commands_text() -> str:
+    return (
+        "*查詢*\n"
+        "• `/bluefors status` — 即時監控讀數\n"
+        "• `/bluefors status <metric_id>` — 單一指標\n"
+        "• `/bluefors metrics` — 指標清單與追蹤狀態\n"
+        "• `/bluefors alerts` — 進行中示警\n"
+        "• `/bluefors phase` — 運行狀態（升溫 / 低溫）\n"
+        "• `/bluefors paths` — 檢查 value_path\n"
+        "• `/bluefors notifications` — CS 內建通知\n\n"
+        "*升溫模式*\n"
+        "• `/bluefors warmup` — 升溫模式狀態\n"
+        "• `/bluefors warmup start [備註]` — 手動啟動\n"
+        "• `/bluefors warmup stop` — 手動結束，恢復完整監控\n"
+        "• `/bluefors policy` — warmup + mute + snooze 總覽\n\n"
+        "*示警操作*\n"
+        "• `/bluefors ack <alert_id>` — 確認示警\n"
+        "• `/bluefors ignore <alert_id>` — 忽略此次異常\n"
+        "• `/bluefors snooze <metric_id> <分鐘>` — 靜音\n"
+        "• `/bluefors mute <metric_id>` / `unmute` — 關閉／開啟指標\n"
+        "• `/bluefors mute-all` / `unmute-all` — 全部靜音／開啟\n"
+        "• `/bluefors clear [confirm]` — 清除所有 alerts/state\n"
+        "• `/bluefors muted` / `snoozed` — 已關閉或暫停通知的指標\n"
+        "• `/bluefors history [alert_id]` — 最近審計事件"
+    )
+
+
+def _chunk_field_text(text: str, max_chars: int = MAX_BLOCK_FIELD_CHARS) -> list[str]:
+    if len(text) <= max_chars:
+        return [text]
+
+    lines = text.splitlines()
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for line in lines:
+        addition = len(line) + (1 if current else 0)
+        if current and current_len + addition > max_chars:
+            chunks.append("\n".join(current))
+            current = [line]
+            current_len = len(line)
+            continue
+        current.append(line)
+        current_len += addition
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
+
+
+def _full_width_section_blocks(text: str) -> list[dict]:
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
+        for chunk in _chunk_field_text(text)
+    ]
+
+
+def build_help_blocks(metrics: list[MetricConfig] | None = None) -> SlashResponse:
+    metrics = metrics or []
     blocks: list[dict] = [
         {
             "type": "header",
             "text": {"type": "plain_text", "text": "Bluefors Bot 指令", "emoji": True},
         },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*查詢*\n"
-                    "• `/bluefors status` — 即時監控讀數\n"
-                    "• `/bluefors status <metric_id>` — 單一指標\n"
-                    "• `/bluefors alerts` — 進行中示警\n"
-                    "• `/bluefors phase` — 運行狀態（升溫 / 低溫）\n"
-                    "• `/bluefors paths` — 檢查 value_path\n"
-                    "• `/bluefors notifications` — CS 內建通知"
-                ),
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*升溫模式*\n"
-                    "• `/bluefors warmup` — 升溫模式狀態\n"
-                    "• `/bluefors warmup start [備註]` — 手動啟動\n"
-                    "• `/bluefors warmup stop` — 手動結束，恢復完整監控\n"
-                    "• `/bluefors policy` — warmup + mute + snooze 總覽"
-                ),
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*示警操作*\n"
-                    "• `/bluefors ack <alert_id>` — 確認示警\n"
-                    "• `/bluefors ignore <alert_id>` — 忽略此次異常\n"
-                    "• `/bluefors snooze <metric_id> <分鐘>` — 靜音\n"
-                    "• `/bluefors mute <metric_id>` / `unmute` — 關閉／開啟指標\n"
-                    "• `/bluefors mute-all` / `unmute-all` — 全部靜音／開啟\n"
-                    "• `/bluefors clear [confirm]` — 清除所有 alerts/state\n"
-                    "• `/bluefors muted` / `snoozed` — 已關閉或暫停通知的指標\n"
-                    "• `/bluefors history [alert_id]` — 最近審計事件"
-                ),
-            },
-        },
+    ]
+    blocks.extend(_full_width_section_blocks(_help_commands_text()))
+    blocks.append({"type": "divider"})
+    blocks.extend(_full_width_section_blocks(build_metric_id_reference_text(metrics)))
+    blocks.append(
         {
             "type": "context",
             "elements": [
@@ -554,13 +587,89 @@ def build_help_blocks() -> SlashResponse:
                     "type": "mrkdwn",
                     "text": (
                         "*Thread 關鍵字:* `status`/`狀態`, `ack`/`確認`, `ignore`/`忽略`, "
-                        "`mute`/`關閉`, `snooze 60`, `help`"
+                        "`mute`/`關閉`, `snooze 60`, `help` | "
+                        "完整追蹤狀態：`/bluefors metrics`"
                     ),
                 }
             ],
+        }
+    )
+    return SlashResponse(text="Bluefors Bot 指令說明", blocks=blocks)
+
+
+def build_metrics_list_blocks(
+    metrics: list[MetricConfig],
+    readings_by_id: dict[str, MetricReading],
+) -> SlashResponse:
+    if not metrics:
+        return SlashResponse(
+            text="目前沒有設定監控指標。",
+            blocks=[
+                {
+                    "type": "header",
+                    "text": {"type": "plain_text", "text": "監控指標清單", "emoji": True},
+                },
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": "_目前沒有設定監控指標。_"},
+                },
+            ],
+        )
+
+    tracked_count = sum(
+        1
+        for metric in metrics
+        if metric.id in readings_by_id
+        and should_track_metric(metric, readings_by_id[metric.id], readings_by_id)
+    )
+    blocks: list[dict] = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "監控指標清單", "emoji": True},
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*共 {len(metrics)} 個指標* | 追蹤中: *{tracked_count}*",
+            },
         },
     ]
-    return SlashResponse(text="Bluefors Bot 指令說明", blocks=blocks)
+
+    for category in CATEGORY_DISPLAY_ORDER:
+        items = _group_metrics_by_category(metrics).get(category)
+        if not items:
+            continue
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*{CATEGORY_LABELS[category]}*"},
+            }
+        )
+        lines: list[str] = []
+        for metric in items:
+            reading = readings_by_id.get(metric.id)
+            status = describe_tracking_status(metric, reading, readings_by_id)
+            lines.append(f"• `{metric.id}` — {metric.name} — _{status}_")
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+            }
+        )
+
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "查單一指標：`/bluefors status <metric_id>`",
+                }
+            ],
+        }
+    )
+    return SlashResponse(text=f"監控指標清單: {len(metrics)}", blocks=blocks)
 
 
 MODE_LABELS = {

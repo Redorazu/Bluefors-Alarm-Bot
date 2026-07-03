@@ -1,6 +1,10 @@
 from alarm_bot.bluefors.models import MetricReading
 from alarm_bot.config import MetricConfig
-from alarm_bot.monitoring.metric_tracking import is_reading_present, should_track_metric
+from alarm_bot.monitoring.metric_tracking import (
+    describe_tracking_status,
+    is_reading_present,
+    should_track_metric,
+)
 
 
 def _reading(
@@ -66,3 +70,20 @@ def test_magnet_temp_tracks_only_when_enabled():
 def test_is_reading_present():
     assert is_reading_present(_reading("x", error="value path not found", raw=None, num=None)) is False
     assert is_reading_present(_reading("x")) is True
+
+
+def test_describe_tracking_status_labels():
+    metric = MetricConfig(
+        id="magnet_temperature",
+        name="磁鐵溫度",
+        value_path="mapper.bf.temperatures.tmagnet",
+        optional=True,
+        enabled_by_metric="magnet_enabled",
+    )
+    missing = _reading("magnet_temperature", error="value path not found", raw=None, num=None)
+    assert describe_tracking_status(metric, missing, {metric.id: missing}) == "未追蹤（未安裝）"
+
+    enabled = _reading("magnet_enabled", raw="1", num=1.0)
+    present = _reading("magnet_temperature", raw="5.2", num=5.2)
+    by_id = {"magnet_enabled": enabled, metric.id: present}
+    assert describe_tracking_status(metric, present, by_id) == "追蹤中"

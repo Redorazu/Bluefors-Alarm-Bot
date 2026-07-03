@@ -25,9 +25,25 @@ def format_enum_label(metric: MetricConfig, reading: MetricReading) -> str | Non
     return None
 
 
+def format_enabled_disabled(reading: MetricReading) -> str:
+    raw = (reading.raw_value or "").strip()
+    if raw == "1":
+        return "enabled"
+    if raw == "0":
+        return "disabled"
+    num = reading_numeric_value(reading)
+    if num is not None and abs(num - 1.0) < 1e-12:
+        return "enabled"
+    if num is not None and abs(num) < 1e-12:
+        return "disabled"
+    return "unknown"
+
+
 def format_metric_value(metric: MetricConfig, reading: MetricReading) -> tuple[str, str]:
     if reading.error:
         return f"ERROR: {reading.error}", ""
+    if metric.category == "sensor_connection" and metric.value_type == "int":
+        return format_enabled_disabled(reading), ""
     if reading.value_type == "sample_status":
         return reading.sample_status or "unknown", ""
 
@@ -42,18 +58,6 @@ def format_metric_value(metric: MetricConfig, reading: MetricReading) -> tuple[s
     if metric.category == "compressor" and metric.id.endswith("_error"):
         if num is not None and abs(num) < 1e-12:
             return "no error", ""
-
-    if metric.id == "magnet_enabled":
-        raw = (reading.raw_value or "").strip()
-        if raw == "1":
-            return "enabled", ""
-        if raw == "0":
-            return "disabled", ""
-        if num is not None and abs(num - 1.0) < 1e-12:
-            return "enabled", ""
-        if num is not None and abs(num) < 1e-12:
-            return "disabled", ""
-        return "unknown", ""
 
     if metric.category == "pressure" and num is not None:
         return f"{num * 1000:.3e}", "mbar"

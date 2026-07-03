@@ -37,12 +37,27 @@ slack:
   default_system_name: "Bluefors XLD1000"
 
 metrics:
+  - id: mxc_enabled
+    name: "MXC 感測器啟用"
+    value_path: "mapper.bf.temperatures.tmixing_enabled"
+    category: sensor_connection
+    value_type: int
+    playbook: "檢查 MXC 感測器是否已啟用"
+    rules:
+      - severity: critical
+        condition: equals
+        threshold: "0"
+        sustain_polls: 2
+    cooldown_seconds: 300
+
   - id: mxc_temperature
     name: "MXC 溫度"
     value_path: "mapper.bf.temperatures.tmixing"
     category: temperature
     unit: "K"
     value_type: float
+    enabled_by_metric: mxc_enabled
+    enabled_by_value: "1"
     playbook: "檢查 MXC 加熱器與 dilution 狀態"
     rules:
       - severity: warning
@@ -58,14 +73,42 @@ metrics:
     cooldown_seconds: 300
     # reminder_interval_seconds: 600
 
+  - id: t50k_enabled
+    name: "50K 感測器啟用"
+    value_path: "mapper.bf.temperatures.t50k_enabled"
+    category: sensor_connection
+    value_type: int
+    playbook: "檢查 50K 感測器是否已啟用"
+    rules:
+      - severity: critical
+        condition: equals
+        threshold: "0"
+        sustain_polls: 2
+    cooldown_seconds: 300
+
   - id: t50k_temperature
     name: "50K 溫度"
     value_path: "mapper.bf.temperatures.t50k"
     category: temperature
     unit: "K"
     value_type: float
+    enabled_by_metric: t50k_enabled
+    enabled_by_value: "1"
     playbook: "檢查 50K 段與預冷系統"
     rules: []
+    cooldown_seconds: 300
+
+  - id: t4k_enabled
+    name: "4K 感測器啟用"
+    value_path: "mapper.bf.temperatures.t4k_enabled"
+    category: sensor_connection
+    value_type: int
+    playbook: "檢查 4K 感測器是否已啟用"
+    rules:
+      - severity: critical
+        condition: equals
+        threshold: "0"
+        sustain_polls: 2
     cooldown_seconds: 300
 
   - id: t4k_temperature
@@ -74,8 +117,23 @@ metrics:
     category: temperature
     unit: "K"
     value_type: float
+    enabled_by_metric: t4k_enabled
+    enabled_by_value: "1"
     playbook: "檢查 4K 段"
     rules: []
+    cooldown_seconds: 300
+
+  - id: tstill_enabled
+    name: "Still 感測器啟用"
+    value_path: "mapper.bf.temperatures.tstill_enabled"
+    category: sensor_connection
+    value_type: int
+    playbook: "檢查 Still 感測器是否已啟用"
+    rules:
+      - severity: critical
+        condition: equals
+        threshold: "0"
+        sustain_polls: 2
     cooldown_seconds: 300
 
   - id: tstill_temperature
@@ -84,6 +142,8 @@ metrics:
     category: temperature
     unit: "K"
     value_type: float
+    enabled_by_metric: tstill_enabled
+    enabled_by_value: "1"
     playbook: "檢查 still 加熱器"
     rules: []
     cooldown_seconds: 300
@@ -95,7 +155,11 @@ metrics:
     value_type: int
     optional: true
     playbook: "確認磁鐵感測器是否已啟用"
-    rules: []
+    rules:
+      - severity: critical
+        condition: equals
+        threshold: "0"
+        sustain_polls: 2
     cooldown_seconds: 300
 
   - id: magnet_temperature
@@ -290,41 +354,42 @@ metrics:
         sustain_polls: 3
     cooldown_seconds: 300
 
-  - id: sensor_connection_mxc
-    name: "MXC 感測器連線狀態"
-    value_path: "mapper.bf.temperatures.tmixing"
-    category: sensor_connection
-    value_type: sample_status
-    playbook: "檢查 BFTC 連線與感測器線路"
-    rules:
-      - severity: critical
-        condition: status_not_in
-        threshold: ["SYNCHRONIZED", "CHANGED", "INDEPENDENT", "QUEUED"]
-        sustain_polls: 2
-    cooldown_seconds: 300
-
-  - id: sensor_connection_t4k
-    name: "4K 感測器連線狀態"
-    value_path: "mapper.bf.temperatures.t4k"
-    category: sensor_connection
-    value_type: sample_status
-    playbook: "檢查 4K 感測器連線"
-    rules:
-      - severity: critical
-        condition: status_not_in
-        threshold: ["SYNCHRONIZED", "CHANGED", "INDEPENDENT", "QUEUED"]
-        sustain_polls: 2
-    cooldown_seconds: 300
-
-  - id: sensor_connection_tstill
-    name: "Still 感測器連線狀態"
-    value_path: "mapper.bf.temperatures.tstill"
-    category: sensor_connection
-    value_type: sample_status
-    playbook: "檢查 still 感測器連線"
-    rules:
-      - severity: critical
-        condition: status_not_in
-        threshold: ["SYNCHRONIZED", "CHANGED", "INDEPENDENT", "QUEUED"]
-        sustain_polls: 2
-    cooldown_seconds: 300
+  # Legacy sample_status 連線判斷（已由 *_enabled 取代）
+  # - id: sensor_connection_mxc
+  #   name: "MXC 感測器連線狀態"
+  #   value_path: "mapper.bf.temperatures.tmixing"
+  #   category: sensor_connection
+  #   value_type: sample_status
+  #   playbook: "檢查 BFTC 連線與感測器線路"
+  #   rules:
+  #     - severity: critical
+  #       condition: status_not_in
+  #       threshold: ["SYNCHRONIZED", "CHANGED", "INDEPENDENT", "QUEUED"]
+  #       sustain_polls: 2
+  #   cooldown_seconds: 300
+  #
+  # - id: sensor_connection_t4k
+  #   name: "4K 感測器連線狀態"
+  #   value_path: "mapper.bf.temperatures.t4k"
+  #   category: sensor_connection
+  #   value_type: sample_status
+  #   playbook: "檢查 4K 感測器連線"
+  #   rules:
+  #     - severity: critical
+  #       condition: status_not_in
+  #       threshold: ["SYNCHRONIZED", "CHANGED", "INDEPENDENT", "QUEUED"]
+  #       sustain_polls: 2
+  #   cooldown_seconds: 300
+  #
+  # - id: sensor_connection_tstill
+  #   name: "Still 感測器連線狀態"
+  #   value_path: "mapper.bf.temperatures.tstill"
+  #   category: sensor_connection
+  #   value_type: sample_status
+  #   playbook: "檢查 still 感測器連線"
+  #   rules:
+  #     - severity: critical
+  #       condition: status_not_in
+  #       threshold: ["SYNCHRONIZED", "CHANGED", "INDEPENDENT", "QUEUED"]
+  #       sustain_polls: 2
+  #   cooldown_seconds: 300

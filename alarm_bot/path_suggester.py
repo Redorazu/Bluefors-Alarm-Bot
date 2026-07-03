@@ -12,9 +12,13 @@ METRIC_PATH_CANDIDATES: dict[str, tuple[str, ...]] = {
         "mapper.bf.temperatures.tmixing",
         "mapper.bflegacy.double.tmixing",
     ),
+    "mxc_enabled": ("mapper.bf.temperatures.tmixing_enabled",),
     "t50k_temperature": ("mapper.bf.temperatures.t50k",),
+    "t50k_enabled": ("mapper.bf.temperatures.t50k_enabled",),
     "t4k_temperature": ("mapper.bf.temperatures.t4k",),
+    "t4k_enabled": ("mapper.bf.temperatures.t4k_enabled",),
     "tstill_temperature": ("mapper.bf.temperatures.tstill",),
+    "tstill_enabled": ("mapper.bf.temperatures.tstill_enabled",),
     "magnet_enabled": ("mapper.bf.temperatures.tmagnet_enabled",),
     "magnet_temperature": (
         "mapper.bf.temperatures.tmagnet",
@@ -43,12 +47,13 @@ METRIC_PATH_CANDIDATES: dict[str, tuple[str, ...]] = {
     "pressure_p5": ("mapper.bf.pressures.p5",),
     "pressure_p6": ("mapper.bf.pressures.p6",),
     "flow_rate": ("mapper.bf.flow",),
-    "sensor_connection_mxc": (
-        "mapper.bf.temperatures.tmixing",
-        "mapper.bflegacy.double.tmixing",
-    ),
-    "sensor_connection_t4k": ("mapper.bf.temperatures.t4k",),
-    "sensor_connection_tstill": ("mapper.bf.temperatures.tstill",),
+    # Legacy sample_status paths (replaced by *_enabled metrics)
+    # "sensor_connection_mxc": (
+    #     "mapper.bf.temperatures.tmixing",
+    #     "mapper.bflegacy.double.tmixing",
+    # ),
+    # "sensor_connection_t4k": ("mapper.bf.temperatures.t4k",),
+    # "sensor_connection_tstill": ("mapper.bf.temperatures.tstill",),
 }
 
 

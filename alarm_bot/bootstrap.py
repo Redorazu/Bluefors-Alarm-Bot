@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from alarm_bot.app_context import AppContext
 from alarm_bot.bluefors.client import BlueforsApiClient
+from alarm_bot.bluefors.system_info import display_system_name, display_system_version
 from alarm_bot.config import EnvSettings, load_yaml_config, resolve_settings
 from alarm_bot.logging.audit import AuditLogger, setup_app_logging
 from alarm_bot.monitoring.alert_manager import AlertManager
@@ -70,12 +71,27 @@ slack:
   default_system_name: "Bluefors XLD1000"
 
 metrics:
+  - id: mxc_enabled
+    name: "MXC 感測器啟用"
+    value_path: "mapper.bf.temperatures.tmixing_enabled"
+    category: sensor_connection
+    value_type: int
+    playbook: "檢查 MXC 感測器是否已啟用"
+    rules:
+      - severity: critical
+        condition: equals
+        threshold: "0"
+        sustain_polls: 2
+    cooldown_seconds: 300
+
   - id: mxc_temperature
     name: "MXC 溫度"
     value_path: "mapper.bf.temperatures.tmixing"
     category: temperature
     unit: "K"
     value_type: float
+    enabled_by_metric: mxc_enabled
+    enabled_by_value: "1"
     playbook: "檢查 MXC 加熱器與 dilution 狀態"
     rules:
       - severity: warning
@@ -137,18 +153,19 @@ metrics:
         sustain_polls: 3
     cooldown_seconds: 300
 
-  - id: sensor_connection_mxc
-    name: "MXC 感測器連線狀態"
-    value_path: "mapper.bf.temperatures.tmixing"
-    category: sensor_connection
-    value_type: sample_status
-    playbook: "檢查 BFTC 連線與感測器線路"
-    rules:
-      - severity: critical
-        condition: status_not_in
-        threshold: ["SYNCHRONIZED", "CHANGED", "INDEPENDENT", "QUEUED"]
-        sustain_polls: 2
-    cooldown_seconds: 300
+  # Legacy sample_status（已由 *_enabled 取代）
+  # - id: sensor_connection_mxc
+  #   name: "MXC 感測器連線狀態"
+  #   value_path: "mapper.bf.temperatures.tmixing"
+  #   category: sensor_connection
+  #   value_type: sample_status
+  #   playbook: "檢查 BFTC 連線與感測器線路"
+  #   rules:
+  #     - severity: critical
+  #       condition: status_not_in
+  #       threshold: ["SYNCHRONIZED", "CHANGED", "INDEPENDENT", "QUEUED"]
+  #       sustain_polls: 2
+  #   cooldown_seconds: 300
 """
 
 
@@ -228,8 +245,10 @@ def run_health_checks(ctx: AppContext) -> tuple[bool, list[str]]:
 
     if ctx.bluefors_client.health_check():
         info = ctx.bluefors_client.fetch_system_info()
+        default_name = ctx.yaml_config.slack.default_system_name
         messages.append(
-            f"Bluefors OK: {info.get('system_name', 'n/a')} v{info.get('sw_version', 'n/a')}"
+            f"Bluefors OK: {display_system_name(info, default_name)} "
+            f"version: {display_system_version(info)}"
         )
     else:
         ok = False

@@ -7,6 +7,7 @@ from alarm_bot.slack.messages import (
     SlashResponse,
     build_alerts_list_blocks,
     build_help_blocks,
+    build_metrics_list_blocks,
     build_phase_status_text,
     build_status_blocks,
     build_status_single_blocks,
@@ -65,7 +66,10 @@ def register_commands(app, ctx: AppContext) -> None:
 
 def _dispatch(ctx: AppContext, sub: str, args: list[str], user_id: str) -> SlashResponse | str:
     if sub in ("help", ""):
-        return build_help_blocks()
+        return build_help_blocks(ctx.yaml_config.metrics)
+
+    if sub == "metrics":
+        return _metrics_list(ctx)
 
     if sub == "status":
         if args:
@@ -209,6 +213,20 @@ def _dispatch(ctx: AppContext, sub: str, args: list[str], user_id: str) -> Slash
         return "\n".join(lines)
 
     return f"未知子指令 `{sub}`。使用 `/bluefors help` 查看說明。"
+
+
+def _metrics_list(ctx: AppContext) -> SlashResponse | str:
+    try:
+        snap = ctx.last_snapshot or ctx.bluefors_client.fetch_snapshot()
+        ctx.last_snapshot = snap
+    except Exception as exc:
+        return f"無法取得 snapshot: {exc}"
+
+    from alarm_bot.bluefors.extractor import extract_all
+
+    readings = extract_all(snap, ctx.yaml_config.metrics)
+    readings_by_id = {reading.metric_id: reading for reading in readings}
+    return build_metrics_list_blocks(ctx.yaml_config.metrics, readings_by_id)
 
 
 def _status_all(ctx: AppContext) -> SlashResponse | str:

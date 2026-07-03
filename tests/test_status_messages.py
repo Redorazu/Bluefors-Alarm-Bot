@@ -6,7 +6,9 @@ from alarm_bot.slack.messages import (
     build_status_text,
     build_status_blocks,
     build_help_blocks,
+    build_metrics_list_blocks,
     build_alerts_list_blocks,
+    build_metric_id_reference_text,
     format_metric_status_line,
     format_sample_status_suffix,
     format_snapshot_timestamp,
@@ -52,7 +54,17 @@ def test_status_suffix_hidden_for_normal_numeric():
     assert format_sample_status_suffix(metric, reading) == ""
 
 
-def test_status_suffix_shown_for_sensor_connection():
+def test_sensor_enabled_int_hides_sample_status_suffix():
+    metric = _metric(
+        id="mxc_enabled",
+        category="sensor_connection",
+        value_type="int",
+    )
+    reading = _reading(sample_status="SYNCHRONIZED", value_type="int", raw_value="1")
+    assert format_sample_status_suffix(metric, reading) == ""
+
+
+def test_status_suffix_shown_for_legacy_sensor_connection_float():
     metric = _metric(category="sensor_connection", value_type="float")
     reading = _reading(sample_status="SYNCHRONIZED", value_type="float")
     assert format_sample_status_suffix(metric, reading) == " (SYNCHRONIZED)"
@@ -283,10 +295,89 @@ def test_build_status_blocks_has_sections():
     assert any("fields" in b for b in resp.blocks if b.get("type") == "section")
 
 
-def test_build_help_blocks():
-    resp = build_help_blocks()
+def test_build_help_blocks_vertical_layout():
+    metrics = [
+        _metric(id="mxc_temperature", name="MXC 溫度", category="temperature"),
+        _metric(id="flow_rate", name="流量", category="flow"),
+    ]
+    resp = build_help_blocks(metrics)
     assert resp.blocks is not None
-    assert len(resp.blocks) >= 4
+    assert resp.text == "Bluefors Bot 指令說明"
+    assert any(b.get("type") == "divider" for b in resp.blocks)
+    sections = [b for b in resp.blocks if b.get("type") == "section"]
+    assert sections
+    assert all("fields" not in b for b in sections)
+    body = "\n".join(b["text"]["text"] for b in sections)
+    assert "/bluefors metrics" in body
+    assert "`mxc_temperature`" in body
+    assert "`flow_rate`" in body
+
+
+def test_build_metric_id_reference_text_groups_by_category():
+    metrics = [
+        _metric(id="flow_rate", name="流量", category="flow"),
+        _metric(id="mxc_temperature", name="MXC 溫度", category="temperature"),
+    ]
+    text = build_metric_id_reference_text(metrics)
+    assert text.index("*溫度*") < text.index("*流量*")
+    assert "`mxc_temperature`" in text
+
+
+def test_build_metrics_list_blocks_shows_tracking_status():
+    metrics = [
+        _metric(id="mxc_temperature", name="MXC 溫度", category="temperature"),
+        _metric(
+            id="magnet_temperature",
+            name="磁鐵溫度",
+            category="temperature",
+            optional=True,
+            enabled_by_metric="magnet_enabled",
+        ),
+    ]
+    readings = {
+        "mxc_temperature": MetricReading(
+            metric_id="mxc_temperature",
+            name="MXC 溫度",
+            value_path="mapper.bf.temperatures.tmixing",
+            unit="K",
+            value_type="float",
+            raw_value="0.05",
+            numeric_value=0.05,
+            sample_status="SYNCHRONIZED",
+            outdated=False,
+            timestamp_ms=0,
+            valid=True,
+            error=None,
+        ),
+        "magnet_temperature": MetricReading(
+            metric_id="magnet_temperature",
+            name="磁鐵溫度",
+            value_path="mapper.bf.temperatures.tmagnet",
+            unit="K",
+            value_type="float",
+            raw_value=None,
+            numeric_value=None,
+            sample_status=None,
+            outdated=False,
+            timestamp_ms=0,
+            valid=False,
+            error="value path not found",
+        ),
+    }
+    resp = build_metrics_list_blocks(metrics, readings)
+    body = "\n".join(
+        b.get("text", {}).get("text", "")
+        for b in resp.blocks or []
+        if b.get("type") == "section" and "text" in b
+    )
+    assert "追蹤中" in body
+    assert "未安裝" in body
+
+
+def test_build_help_blocks():
+    resp = build_help_blocks([])
+    assert resp.blocks is not None
+    assert len(resp.blocks) >= 3
     assert resp.text == "Bluefors Bot 指令說明"
 
 
