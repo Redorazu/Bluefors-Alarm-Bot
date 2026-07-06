@@ -107,7 +107,6 @@ def evaluate_rule(reading: MetricReading, rule: RuleConfig, metric: MetricConfig
 def evaluate_metric(
     reading: MetricReading,
     metric: MetricConfig,
-    sustain_count: int,
 ) -> RuleMatch:
     if not reading.valid and reading.value_type != "sample_status":
         if reading.sample_status and reading.sample_status not in VALID_SAMPLE_STATUSES:
@@ -122,8 +121,6 @@ def evaluate_metric(
     for rule in metric.rules:
         result = evaluate_rule(reading, rule, metric)
         if not result.matched:
-            continue
-        if sustain_count + 1 < rule.sustain_polls:
             continue
         if best is None or severity_rank.get(result.severity or "", 0) > severity_rank.get(
             best.severity or "", 0

@@ -8,7 +8,9 @@ from alarm_bot.slack.messages import (
     build_help_blocks,
     build_metrics_list_blocks,
     build_alerts_list_blocks,
+    build_alert_blocks,
     build_metric_id_reference_text,
+    format_metric_label,
     format_metric_status_line,
     format_sample_status_suffix,
     format_snapshot_timestamp,
@@ -206,7 +208,7 @@ def test_build_status_text_groups_by_category():
         warmup_status={"active": True},
         active_alert_count=2,
     )
-    assert "運行: *升溫模式* | 進行中示警: *2*" in text
+    assert "運行: *系統升溫中（升溫標籤）* | 進行中示警: *2*" in text
     assert "*溫度*" in text
     assert "*流量*" in text
     assert text.index("*溫度*") < text.index("*流量*")
@@ -381,6 +383,33 @@ def test_build_help_blocks():
     assert resp.text == "Bluefors Bot 指令說明"
 
 
+def test_format_metric_label_shows_name_and_id():
+    metric = _metric(id="mxc_temperature", name="MXC 溫度")
+    assert format_metric_label("mxc_temperature", [metric]) == "MXC 溫度 (`mxc_temperature`)"
+
+
+def test_build_alert_blocks_shows_name_with_id_footer():
+    metric = _metric(id="mxc_temperature", name="MXC 溫度")
+    alert = AlertRecord(
+        alert_id="a1",
+        metric_id="mxc_temperature",
+        severity="warning",
+        status="ACTIVE",
+        value="1.5",
+        threshold="0.1",
+        condition="above",
+        playbook="",
+        triggered_at="t",
+        updated_at="t",
+    )
+    blocks = build_alert_blocks(alert, metrics=[metric])
+    header = blocks[0]["text"]["text"]
+    footer = next(b for b in blocks if b.get("type") == "context")["elements"][0]["text"]
+    assert "MXC 溫度" in header
+    assert "mxc_temperature" not in header
+    assert footer == "metric_id: `mxc_temperature`"
+
+
 def test_build_alerts_list_blocks_empty():
     resp = build_alerts_list_blocks([])
     assert resp.blocks is not None
@@ -402,9 +431,16 @@ def test_build_alerts_list_blocks_with_alerts():
             updated_at="t",
         )
     ]
-    resp = build_alerts_list_blocks(alerts)
+    resp = build_alerts_list_blocks(
+        alerts,
+        metrics=[_metric(id="mxc_temperature", name="MXC 溫度")],
+    )
     assert resp.blocks is not None
     assert "進行中的示警 (1)" in resp.blocks[0]["text"]["text"]
+    section_text = resp.blocks[1]["text"]["text"]
+    assert "MXC 溫度 (`mxc_temperature`)" in section_text
+    footer = resp.blocks[2]["elements"][0]["text"]
+    assert footer == "metric_id: `mxc_temperature`"
 
 
 def test_format_local_timestamp_matches_snapshot_style():

@@ -19,7 +19,7 @@ def _reading(value: str, num: float | None = None) -> MetricReading:
     )
 
 
-def test_above_rule_triggers_after_sustain():
+def test_above_rule_matches_when_threshold_exceeded():
     metric = MetricConfig(
         id="test",
         name="Test",
@@ -27,8 +27,9 @@ def test_above_rule_triggers_after_sustain():
         rules=[RuleConfig(severity="warning", condition="above", threshold=1.0, sustain_polls=2)],
     )
     reading = _reading("1.5", 1.5)
-    assert not evaluate_metric(reading, metric, 0).matched
-    assert evaluate_metric(reading, metric, 1).matched
+    result = evaluate_metric(reading, metric)
+    assert result.matched
+    assert result.severity == "warning"
 
 
 def test_recovery_with_hysteresis():

@@ -7,12 +7,17 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from alarm_bot.slack.messages import (
+    WARMUP_CONTEXT_LABEL,
+    WARMUP_TAG_LABEL,
+    FULL_MONITOR_LABEL,
     build_alert_blocks,
     build_base_temp_mode_announcement_blocks,
     build_base_temp_mode_label_blocks,
     build_recovery_blocks,
     build_status_text,
     build_warmup_label_blocks,
+    format_metric_label,
+    metric_display_name,
 )
 from alarm_bot.state.store import AlertRecord
 
@@ -49,7 +54,7 @@ class SlackNotifier:
             note=str(payload.get("note", "")),
             started_at=self.ctx.alert_manager.state.warmup_mode.started_at,
         )
-        text = ":fire: 升溫模式已啟動"
+        text = f":fire: {WARMUP_CONTEXT_LABEL} — {WARMUP_TAG_LABEL}已啟用"
         try:
             resp = self.client.chat_postMessage(channel=self.channel, text=text, blocks=blocks)
             ts = resp.get("ts")
@@ -69,7 +74,7 @@ class SlackNotifier:
         reason = str(payload.get("reason", "manual"))
         tmixing_k = payload.get("tmixing_k")
         blocks = build_base_temp_mode_label_blocks(reason=reason, tmixing_k=tmixing_k)
-        text = ":snowflake: 已進入低溫模式"
+        text = f":snowflake: {WARMUP_TAG_LABEL}已關閉 — {FULL_MONITOR_LABEL}已恢復"
         try:
             if channel and ts:
                 self.client.chat_update(channel=channel, ts=ts, text=text, blocks=blocks)
@@ -88,7 +93,7 @@ class SlackNotifier:
 
             if reason == "auto_tmixing":
                 announcement_blocks = build_base_temp_mode_announcement_blocks(tmixing_k=tmixing_k)
-                announcement_text = ":snowflake: 系統已進入低溫模式"
+                announcement_text = f":snowflake: {WARMUP_TAG_LABEL}已關閉 — {FULL_MONITOR_LABEL}已恢復"
                 resp = self.client.chat_postMessage(
                     channel=self.channel,
                     text=announcement_text,
@@ -108,8 +113,10 @@ class SlackNotifier:
 
     def send_alert(self, alert: AlertRecord) -> None:
         mention = self.ctx.yaml_config.slack.mention_channel_on_critical
-        blocks = build_alert_blocks(alert, mention_channel=mention)
-        text = f"[{alert.severity.upper()}] {alert.metric_id}: {alert.value}"
+        metrics = self.ctx.yaml_config.metrics
+        blocks = build_alert_blocks(alert, mention_channel=mention, metrics=metrics)
+        name = metric_display_name(alert.metric_id, metrics)
+        text = f"[{alert.severity.upper()}] {name} (`{alert.metric_id}`): {alert.value}"
         try:
             resp = self.client.chat_postMessage(
                 channel=self.channel,
@@ -132,8 +139,10 @@ class SlackNotifier:
     def send_reminder(self, alert: AlertRecord) -> None:
         channel = alert.slack_channel or self.channel
         thread_ts = alert.thread_ts
+        metrics = self.ctx.yaml_config.metrics
+        metric_label = format_metric_label(alert.metric_id, metrics)
         text = (
-            f":repeat: *提醒* — `{alert.metric_id}` 仍為 *{alert.severity}*，"
+            f":repeat: *提醒* — {metric_label} 仍為 *{alert.severity}*，"
             f"當前值: `{alert.value}` | Alert ID: `{alert.alert_id}`"
         )
         try:
@@ -154,8 +163,10 @@ class SlackNotifier:
             logger.error("Failed to send reminder: %s", exc.response["error"])
 
     def send_recovery(self, alert: AlertRecord) -> None:
-        blocks = build_recovery_blocks(alert)
-        text = f"[RECOVERED] {alert.metric_id}: {alert.value}"
+        metrics = self.ctx.yaml_config.metrics
+        blocks = build_recovery_blocks(alert, metrics=metrics)
+        name = metric_display_name(alert.metric_id, metrics)
+        text = f"[RECOVERED] {name} (`{alert.metric_id}`): {alert.value}"
         try:
             thread_ts = alert.thread_ts
             self.client.chat_postMessage(
@@ -208,7 +219,8 @@ class SlackNotifier:
         if not alert.slack_channel or not alert.slack_ts:
             return
         mention = self.ctx.yaml_config.slack.mention_channel_on_critical
-        blocks = build_alert_blocks(alert, mention_channel=mention)
+        metrics = self.ctx.yaml_config.metrics
+        blocks = build_alert_blocks(alert, mention_channel=mention, metrics=metrics)
         if hide_interactions:
             blocks = [
                 block
@@ -227,7 +239,10 @@ class SlackNotifier:
             self.client.chat_update(
                 channel=alert.slack_channel,
                 ts=alert.slack_ts,
-                text=f"[{alert.status}] {alert.metric_id}",
+                text=(
+                    f"[{alert.status}] "
+                    f"{metric_display_name(alert.metric_id, metrics)} (`{alert.metric_id}`)"
+                ),
                 blocks=blocks,
             )
             self.ctx.audit.log(

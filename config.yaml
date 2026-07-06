@@ -37,10 +37,13 @@ slack:
   default_system_name: "Bluefors XLD1000"
 
 metrics:
+  # suppress_during_warmup: 升溫標籤期間是否抑制此 metric 的示警（可逐項設定）
+  # 若省略，依 category 預設：temperature / pressure / flow / sensor_connection 為 true；compressor / turbo 為 false
   - id: mxc_enabled
     name: "MXC 感測器啟用"
     value_path: "mapper.bf.temperatures.tmixing_enabled"
     category: sensor_connection
+    suppress_during_warmup: true
     value_type: int
     playbook: "檢查 MXC 感測器是否已啟用"
     rules:
@@ -54,6 +57,7 @@ metrics:
     name: "MXC 溫度"
     value_path: "mapper.bf.temperatures.tmixing"
     category: temperature
+    suppress_during_warmup: true
     unit: "K"
     value_type: float
     enabled_by_metric: mxc_enabled
@@ -77,6 +81,7 @@ metrics:
     name: "50K 感測器啟用"
     value_path: "mapper.bf.temperatures.t50k_enabled"
     category: sensor_connection
+    suppress_during_warmup: true
     value_type: int
     playbook: "檢查 50K 感測器是否已啟用"
     rules:
@@ -90,6 +95,7 @@ metrics:
     name: "50K 溫度"
     value_path: "mapper.bf.temperatures.t50k"
     category: temperature
+    suppress_during_warmup: true
     unit: "K"
     value_type: float
     enabled_by_metric: t50k_enabled
@@ -102,6 +108,7 @@ metrics:
     name: "4K 感測器啟用"
     value_path: "mapper.bf.temperatures.t4k_enabled"
     category: sensor_connection
+    suppress_during_warmup: true
     value_type: int
     playbook: "檢查 4K 感測器是否已啟用"
     rules:
@@ -115,6 +122,7 @@ metrics:
     name: "4K 溫度"
     value_path: "mapper.bf.temperatures.t4k"
     category: temperature
+    suppress_during_warmup: true
     unit: "K"
     value_type: float
     enabled_by_metric: t4k_enabled
@@ -127,6 +135,7 @@ metrics:
     name: "Still 感測器啟用"
     value_path: "mapper.bf.temperatures.tstill_enabled"
     category: sensor_connection
+    suppress_during_warmup: true
     value_type: int
     playbook: "檢查 Still 感測器是否已啟用"
     rules:
@@ -140,6 +149,7 @@ metrics:
     name: "Still 溫度"
     value_path: "mapper.bf.temperatures.tstill"
     category: temperature
+    suppress_during_warmup: true
     unit: "K"
     value_type: float
     enabled_by_metric: tstill_enabled
@@ -152,6 +162,7 @@ metrics:
     name: "磁鐵感測器啟用"
     value_path: "mapper.bf.temperatures.tmagnet_enabled"
     category: sensor_connection
+    suppress_during_warmup: true
     value_type: int
     optional: true
     playbook: "確認磁鐵感測器是否已啟用"
@@ -166,6 +177,7 @@ metrics:
     name: "磁鐵溫度"
     value_path: "mapper.bf.temperatures.tmagnet"
     category: temperature
+    suppress_during_warmup: true
     unit: "K"
     value_type: float
     optional: true
@@ -190,6 +202,7 @@ metrics:
     name: "壓縮機 1 冷卻水入水溫"
     value_path: "mapper.bflegacy.double.cpatempwi"
     category: compressor
+    suppress_during_warmup: false
     unit: "°C"
     value_type: float
     playbook: "檢查冷卻水循環與熱交換器"
@@ -210,6 +223,7 @@ metrics:
     name: "壓縮機 1 錯誤碼"
     value_path: "mapper.bflegacy.double.cpaerr"
     category: compressor
+    suppress_during_warmup: false
     value_type: int
     playbook: "查閱壓縮機 1 手冊錯誤碼表"
     rules:
@@ -223,6 +237,7 @@ metrics:
     name: "壓縮機 2 冷卻水入水溫"
     value_path: "mapper.bflegacy.double.cpatempwi_2"
     category: compressor
+    suppress_during_warmup: false
     unit: "°C"
     value_type: float
     playbook: "檢查壓縮機 2 冷卻水循環"
@@ -243,6 +258,7 @@ metrics:
     name: "壓縮機 2 錯誤碼"
     value_path: "mapper.bflegacy.double.cpaerr_2"
     category: compressor
+    suppress_during_warmup: false
     value_type: int
     playbook: "查閱壓縮機 2 手冊錯誤碼表"
     rules:
@@ -256,6 +272,7 @@ metrics:
     name: "Turbo 1"
     value_path: "mapper.bf.pumps.turbo1"
     category: turbo
+    suppress_during_warmup: false
     value_type: enum
     enum_values:
       error: ["2"]
@@ -273,6 +290,7 @@ metrics:
     name: "Turbo 2"
     value_path: "mapper.bf.pumps.turbo2"
     category: turbo
+    suppress_during_warmup: false
     value_type: enum
     enum_values:
       error: ["2"]
@@ -290,6 +308,7 @@ metrics:
     name: "壓力 P1"
     value_path: "mapper.bf.pressures.p1"
     category: pressure
+    suppress_during_warmup: true
     unit: "bar"
     value_type: float
     rules: []
@@ -299,6 +318,7 @@ metrics:
     name: "壓力 P2"
     value_path: "mapper.bf.pressures.p2"
     category: pressure
+    suppress_during_warmup: true
     unit: "bar"
     value_type: float
     rules: []
@@ -308,6 +328,7 @@ metrics:
     name: "壓力 P3"
     value_path: "mapper.bf.pressures.p3"
     category: pressure
+    suppress_during_warmup: true
     unit: "bar"
     value_type: float
     rules: []
@@ -317,24 +338,33 @@ metrics:
     name: "壓力 P4"
     value_path: "mapper.bf.pressures.p4"
     category: pressure
+    suppress_during_warmup: true
     unit: "bar"
     value_type: float
     rules: []
     cooldown_seconds: 300
 
   - id: pressure_p5
-    name: "壓力 P5"
+    name: "壓力 Tank"
     value_path: "mapper.bf.pressures.p5"
     category: pressure
+    suppress_during_warmup: true
     unit: "bar"
     value_type: float
-    rules: []
+    rules: 
+      - severity: critical
+        condition: above
+        threshold: 0.8
+        sustain_polls: 1
+    recovery:
+      hysteresis: 0.03
     cooldown_seconds: 300
 
   - id: pressure_p6
     name: "壓力 P6"
     value_path: "mapper.bf.pressures.p6"
     category: pressure
+    suppress_during_warmup: true
     unit: "bar"
     value_type: float
     rules: []
@@ -344,6 +374,7 @@ metrics:
     name: "流量"
     value_path: "mapper.bf.flow"
     category: flow
+    suppress_during_warmup: true
     unit: ""
     value_type: float
     playbook: "檢查 flowmeter 與管路"
@@ -352,6 +383,12 @@ metrics:
         condition: below
         threshold: 0.5
         sustain_polls: 3
+      - severity: critical
+        condition: above
+        threshold: 2
+        sustain_polls: 1
+    recovery:
+      hysteresis: 0.5
     cooldown_seconds: 300
 
   # Legacy sample_status 連線判斷（已由 *_enabled 取代）

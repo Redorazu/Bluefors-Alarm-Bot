@@ -126,7 +126,7 @@ class AlertManager:
                 t50k_val = t50k.value_k if t50k else None
                 note = (
                     f"t50k={t50k_val} K 超過閾值 "
-                    f"{self.yaml_config.operating_phases.warmup.auto_start_t50k_k} K，自動啟動升溫模式"
+                    f"{self.yaml_config.operating_phases.warmup.auto_start_t50k_k} K，自動啟動升溫標籤"
                 )
                 self.start_warmup_mode(
                     source="auto_t50k",
@@ -136,7 +136,7 @@ class AlertManager:
                 )
             elif phase_snapshot.heater_4k_auto_warmup:
                 heater_val = phase_snapshot.heater_4k_value or "on"
-                note = f"4K heater 已啟動（讀值={heater_val}），自動啟動升溫模式"
+                note = f"4K heater 已啟動（讀值={heater_val}），自動啟動升溫標籤"
                 self.start_warmup_mode(
                     source="auto_4k_heater",
                     started_by="system",
@@ -279,11 +279,7 @@ class AlertManager:
                 return self._remind(active, reading, metric)
             return AlertEvent(kind="none")
 
-        match = evaluate_metric(
-            reading,
-            metric,
-            self.state.sustain_counters.get(counter_key, 0),
-        )
+        match = evaluate_metric(reading, metric)
 
         if not match.matched:
             self.state.sustain_counters[counter_key] = 0

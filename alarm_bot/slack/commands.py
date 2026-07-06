@@ -12,6 +12,7 @@ from alarm_bot.slack.messages import (
     build_status_blocks,
     build_status_single_blocks,
     build_warmup_status_text,
+    format_metric_label,
 )
 from alarm_bot.time_utils import format_local_timestamp
 
@@ -77,7 +78,10 @@ def _dispatch(ctx: AppContext, sub: str, args: list[str], user_id: str) -> Slash
         return _status_all(ctx)
 
     if sub == "alerts":
-        return build_alerts_list_blocks(ctx.alert_manager.list_active_alerts())
+        return build_alerts_list_blocks(
+            ctx.alert_manager.list_active_alerts(),
+            metrics=ctx.yaml_config.metrics,
+        )
 
     if sub == "muted":
         return _muted_status(ctx)
@@ -105,14 +109,14 @@ def _dispatch(ctx: AppContext, sub: str, args: list[str], user_id: str) -> Slash
                 started_by=user_id,
                 note=note,
             )
-            return "已啟動升溫模式。"
+            return "已啟動升溫標籤（系統升溫中，部分示警已抑制）。"
         if action == "stop":
             ctx.alert_manager.enter_base_temp_mode(
                 reason="manual",
                 actor=user_id,
                 tmixing_k=_current_tmixing_k(ctx),
             )
-            return "已結束升溫模式，完整監控示警已恢復。"
+            return "已關閉升溫標籤，完整監控示警已恢復。"
         return _warmup_status(ctx)
 
     if sub == "ack" and args:
@@ -138,15 +142,20 @@ def _dispatch(ctx: AppContext, sub: str, args: list[str], user_id: str) -> Slash
         except ValueError:
             return "分鐘數必須為整數"
         until = ctx.alert_manager.snooze_metric(metric_id, minutes, user_id)
-        return f"已靜音 `{metric_id}` 至 {format_local_timestamp(until)}"
+        return (
+            f"已靜音 {format_metric_label(metric_id, ctx.yaml_config.metrics)} "
+            f"至 {format_local_timestamp(until)}"
+        )
 
     if sub == "mute" and args:
-        ctx.alert_manager.mute_metric(args[0], user_id, True)
-        return f"已關閉 `{args[0]}` 的警報通知。"
+        metric_id = args[0]
+        ctx.alert_manager.mute_metric(metric_id, user_id, True)
+        return f"已關閉 {format_metric_label(metric_id, ctx.yaml_config.metrics)} 的警報通知。"
 
     if sub == "unmute" and args:
-        ctx.alert_manager.mute_metric(args[0], user_id, False)
-        return f"已重新開啟 `{args[0]}` 的警報通知。"
+        metric_id = args[0]
+        ctx.alert_manager.mute_metric(metric_id, user_id, False)
+        return f"已重新開啟 {format_metric_label(metric_id, ctx.yaml_config.metrics)} 的警報通知。"
 
     if sub == "mute-all":
         for m in ctx.yaml_config.metrics:
@@ -161,7 +170,7 @@ def _dispatch(ctx: AppContext, sub: str, args: list[str], user_id: str) -> Slash
     if sub == "clear":
         if not args or args[0].lower() != "confirm":
             return (
-                "⚠️ 此操作將清除所有 alerts/state（含 mute、snooze、warmup 狀態）。\n"
+                "⚠️ 此操作將清除所有 alerts/state（含 mute、snooze、升溫標籤狀態）。\n"
                 "若確定執行，請輸入：`/bluefors clear confirm`"
             )
         summary = ctx.alert_manager.clear_all_state(user_id)
@@ -303,8 +312,9 @@ def _muted_status(ctx: AppContext) -> str:
     if not muted_ids:
         return "*Muted 指標:* 無"
     lines = ["*Muted 指標:*"]
+    metrics = ctx.yaml_config.metrics
     for metric_id in sorted(muted_ids):
-        lines.append(f"• `{metric_id}`")
+        lines.append(f"• {format_metric_label(metric_id, metrics)}")
     return "\n".join(lines)
 
 
@@ -323,8 +333,12 @@ def _snoozed_status(ctx: AppContext) -> str:
         return "*Snoozed 指標:* 無"
 
     lines = ["*Snoozed 指標:*"]
+    metrics = ctx.yaml_config.metrics
     for metric_id, until in sorted(active, key=lambda x: x[0]):
-        lines.append(f"• `{metric_id}` until `{format_local_timestamp(until)}`")
+        lines.append(
+            f"• {format_metric_label(metric_id, metrics)} until "
+            f"`{format_local_timestamp(until)}`"
+        )
     return "\n".join(lines)
 
 

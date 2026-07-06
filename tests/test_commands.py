@@ -48,7 +48,7 @@ def test_warmup_stop_passes_current_tmixing_to_base_temp_mode():
 
     msg = _dispatch(ctx, "warmup", ["stop"], "U999")
 
-    assert msg == "已結束升溫模式，完整監控示警已恢復。"
+    assert msg == "已關閉升溫標籤，完整監控示警已恢復。"
     assert ctx.alert_manager.called == {
         "reason": "manual",
         "actor": "U999",

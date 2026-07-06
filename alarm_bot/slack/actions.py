@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from alarm_bot.slack.messages import format_metric_label
 from alarm_bot.slack.thread_handler import find_alert_id_from_thread
 from alarm_bot.time_utils import format_local_timestamp
 
@@ -96,18 +97,19 @@ def register_actions(app, ctx: AppContext) -> None:
         )
 
         ctx.alert_manager.mute_metric(metric_id, user_id, True)
+        metric_label = format_metric_label(metric_id, ctx.yaml_config.metrics)
         if ctx.slack_notifier:
             alert_id = find_alert_id_from_thread(ctx, thread_ts) if thread_ts else None
             alert = ctx.alert_manager.get_alert(alert_id) if alert_id else None
             if alert:
                 ctx.slack_notifier.update_alert_message(
                     alert,
-                    f":mute: 已由 <@{user_id}> 關閉 `{metric_id}` 警報",
+                    f":mute: 已由 <@{user_id}> 關閉 {metric_label} 警報",
                     hide_interactions=True,
                 )
             ctx.slack_notifier.reply_text(
                 channel,
-                f"<@{user_id}> 已關閉 `{metric_id}` 的警報通知。",
+                f"<@{user_id}> 已關閉 {metric_label} 的警報通知。",
                 thread_ts=thread_ts,
             )
 
@@ -153,12 +155,12 @@ def register_actions(app, ctx: AppContext) -> None:
                 if alert:
                     ctx.slack_notifier.update_alert_message(
                         alert,
-                        f":fire: <@{user_id}> 嘗試啟動升溫模式（目前已在進行中）",
+                        f":fire: <@{user_id}> 嘗試啟動升溫標籤（目前已在進行中）",
                         hide_interactions=True,
                     )
                 ctx.slack_notifier.reply_text(
                     channel,
-                    f"<@{user_id}> 升溫模式已在進行中。",
+                    f"<@{user_id}> 升溫標籤已在進行中。",
                     thread_ts=thread_ts,
                 )
             ctx.audit.log(
@@ -180,12 +182,12 @@ def register_actions(app, ctx: AppContext) -> None:
             if alert:
                 ctx.slack_notifier.update_alert_message(
                     alert,
-                    f":fire: 已由 <@{user_id}> 啟動升溫模式",
+                    f":fire: 已由 <@{user_id}> 啟動升溫標籤",
                     hide_interactions=True,
                 )
             ctx.slack_notifier.reply_text(
                 channel,
-                f"<@{user_id}> 已啟動升溫模式。",
+                f"<@{user_id}> 已啟動升溫標籤（系統升溫中，部分示警已抑制）。",
                 thread_ts=thread_ts,
             )
         ctx.audit.log(
@@ -214,17 +216,18 @@ def register_actions(app, ctx: AppContext) -> None:
         )
 
         until = ctx.alert_manager.snooze_metric(metric_id, minutes, user_id)
+        metric_label = format_metric_label(metric_id, ctx.yaml_config.metrics)
         if ctx.slack_notifier:
             alert_id = find_alert_id_from_thread(ctx, thread_ts) if thread_ts else None
             alert = ctx.alert_manager.get_alert(alert_id) if alert_id else None
             if alert:
                 ctx.slack_notifier.update_alert_message(
                     alert,
-                    f":zzz: 已由 <@{user_id}> 靜音 `{metric_id}` 至 {format_local_timestamp(until)}",
+                    f":zzz: 已由 <@{user_id}> 靜音 {metric_label} 至 {format_local_timestamp(until)}",
                     hide_interactions=True,
                 )
             ctx.slack_notifier.reply_text(
                 channel,
-                f"<@{user_id}> 已靜音 `{metric_id}` 至 {format_local_timestamp(until)}",
+                f"<@{user_id}> 已靜音 {metric_label} 至 {format_local_timestamp(until)}",
                 thread_ts=thread_ts,
             )

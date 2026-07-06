@@ -106,6 +106,43 @@ def test_warmup_suppresses_temperature_but_not_compressor():
             audit.close()
 
 
+def test_warmup_metric_override_allows_alert_when_suppress_false():
+    with tempfile.TemporaryDirectory() as tmp:
+        yaml = AppYamlConfig(
+            metrics=[
+                MetricConfig(
+                    id="flow_rate",
+                    name="流量",
+                    value_path="mapper.bf.flow",
+                    category="flow",
+                    suppress_during_warmup=False,
+                    rules=[
+                        RuleConfig(
+                            severity="warning",
+                            condition="below",
+                            threshold=0.5,
+                            sustain_polls=1,
+                        )
+                    ],
+                ),
+            ]
+        )
+        state = StateStore(path=Path(tmp) / "alerts.json")
+        audit = AuditLogger(Path(tmp) / "audit.jsonl")
+        manager = AlertManager(yaml, state, audit)
+        try:
+            manager.start_warmup_mode(source="manual", started_by="U1", note="test")
+            snap = SystemSnapshot(
+                fetched_at=datetime.now(UTC),
+                nodes={"mapper.bf.flow": _node("0.1")},
+                node_count=1,
+            )
+            events = manager.process_snapshot(snap)
+            assert any(e.kind == "alert" and e.alert and e.alert.metric_id == "flow_rate" for e in events)
+        finally:
+            audit.close()
+
+
 def test_auto_warmup_start_on_high_t50k():
     with tempfile.TemporaryDirectory() as tmp:
         manager, audit = _manager(Path(tmp))
@@ -175,6 +212,98 @@ def test_enter_base_temp_mode_on_tmixing_sustain():
 
             assert manager.state.warmup_mode.active is False
             assert "base_temp_entered" in notified
+        finally:
+            audit.close()
+
+
+def test_warning_triggers_after_sustain_polls():
+    with tempfile.TemporaryDirectory() as tmp:
+        yaml = AppYamlConfig(
+            metrics=[
+                MetricConfig(
+                    id="mxc_temperature",
+                    name="MXC",
+                    value_path="mapper.bf.temperatures.tmixing",
+                    category="temperature",
+                    rules=[
+                        RuleConfig(
+                            severity="warning",
+                            condition="above",
+                            threshold=0.1,
+                            sustain_polls=3,
+                        ),
+                    ],
+                ),
+            ]
+        )
+        state = StateStore(path=Path(tmp) / "alerts.json")
+        audit = AuditLogger(Path(tmp) / "audit.jsonl")
+        manager = AlertManager(yaml, state, audit)
+        try:
+            snap = SystemSnapshot(
+                fetched_at=datetime.now(UTC),
+                nodes={"mapper.bf.temperatures.tmixing": _node("0.15")},
+                node_count=1,
+            )
+
+            events1 = manager.process_snapshot(snap)
+            assert all(e.kind != "alert" for e in events1)
+            assert manager.state.sustain_counters["mxc_temperature"] == 1
+
+            events2 = manager.process_snapshot(snap)
+            assert all(e.kind != "alert" for e in events2)
+            assert manager.state.sustain_counters["mxc_temperature"] == 2
+
+            events3 = manager.process_snapshot(snap)
+            assert any(
+                e.kind == "alert" and e.alert and e.alert.severity == "warning"
+                for e in events3
+            )
+        finally:
+            audit.close()
+
+
+def test_sustain_counter_resets_when_condition_clears():
+    with tempfile.TemporaryDirectory() as tmp:
+        yaml = AppYamlConfig(
+            metrics=[
+                MetricConfig(
+                    id="mxc_temperature",
+                    name="MXC",
+                    value_path="mapper.bf.temperatures.tmixing",
+                    category="temperature",
+                    rules=[
+                        RuleConfig(
+                            severity="warning",
+                            condition="above",
+                            threshold=0.1,
+                            sustain_polls=3,
+                        ),
+                    ],
+                ),
+            ]
+        )
+        state = StateStore(path=Path(tmp) / "alerts.json")
+        audit = AuditLogger(Path(tmp) / "audit.jsonl")
+        manager = AlertManager(yaml, state, audit)
+        try:
+            high = SystemSnapshot(
+                fetched_at=datetime.now(UTC),
+                nodes={"mapper.bf.temperatures.tmixing": _node("0.15")},
+                node_count=1,
+            )
+            low = SystemSnapshot(
+                fetched_at=datetime.now(UTC),
+                nodes={"mapper.bf.temperatures.tmixing": _node("0.05")},
+                node_count=1,
+            )
+
+            manager.process_snapshot(high)
+            manager.process_snapshot(high)
+            assert manager.state.sustain_counters["mxc_temperature"] == 2
+
+            manager.process_snapshot(low)
+            assert manager.state.sustain_counters["mxc_temperature"] == 0
         finally:
             audit.close()
 

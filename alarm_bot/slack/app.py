@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from alarm_bot.slack.actions import register_actions
 from alarm_bot.slack.commands import register_commands
-from alarm_bot.slack.messages import HELP_TEXT
+from alarm_bot.slack.messages import HELP_TEXT, format_metric_label
 from alarm_bot.slack.thread_handler import (
     find_alert_id_from_thread,
     parse_snooze_args,
@@ -129,7 +129,8 @@ def _handle_thread(
         alert = ctx.alert_manager.get_alert(alert_id)
         if alert:
             ctx.alert_manager.mute_metric(alert.metric_id, user_id, True)
-            return f"<@{user_id}> 已關閉 `{alert.metric_id}` 警報。"
+            label = format_metric_label(alert.metric_id, ctx.yaml_config.metrics)
+            return f"<@{user_id}> 已關閉 {label} 警報。"
         return "找不到對應示警。"
 
     if cmd == "snooze":
@@ -138,7 +139,8 @@ def _handle_thread(
             alert = ctx.alert_manager.get_alert(alert_id)
             if alert:
                 until = ctx.alert_manager.snooze_metric(alert.metric_id, minutes, user_id)
-                return f"<@{user_id}> 已靜音 `{alert.metric_id}` 至 {format_local_timestamp(until)}"
+                label = format_metric_label(alert.metric_id, ctx.yaml_config.metrics)
+                return f"<@{user_id}> 已靜音 {label} 至 {format_local_timestamp(until)}"
         return "找不到對應示警。"
 
     return f"未知指令 `{cmd}`。輸入 help 查看說明。"

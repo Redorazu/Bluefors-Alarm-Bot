@@ -71,10 +71,13 @@ slack:
   default_system_name: "Bluefors XLD1000"
 
 metrics:
+  # suppress_during_warmup: 升溫標籤期間是否抑制此 metric 的示警（可逐項設定）
+  # 若省略，依 category 預設：temperature / pressure / flow / sensor_connection 為 true；compressor / turbo 為 false
   - id: mxc_enabled
     name: "MXC 感測器啟用"
     value_path: "mapper.bf.temperatures.tmixing_enabled"
     category: sensor_connection
+    suppress_during_warmup: true
     value_type: int
     playbook: "檢查 MXC 感測器是否已啟用"
     rules:
@@ -88,6 +91,7 @@ metrics:
     name: "MXC 溫度"
     value_path: "mapper.bf.temperatures.tmixing"
     category: temperature
+    suppress_during_warmup: true
     unit: "K"
     value_type: float
     enabled_by_metric: mxc_enabled
@@ -110,6 +114,7 @@ metrics:
     name: "壓縮機 1 冷卻水入水溫"
     value_path: "mapper.bflegacy.double.cpatempwi"
     category: compressor
+    suppress_during_warmup: false
     unit: "°C"
     value_type: float
     playbook: "檢查冷卻水循環與熱交換器"
@@ -130,6 +135,7 @@ metrics:
     name: "壓縮機 1 錯誤碼"
     value_path: "mapper.bflegacy.double.cpaerr"
     category: compressor
+    suppress_during_warmup: false
     value_type: int
     playbook: "查閱壓縮機手冊錯誤碼表"
     rules:
@@ -143,6 +149,7 @@ metrics:
     name: "流量"
     value_path: "mapper.bf.flow"
     category: flow
+    suppress_during_warmup: true
     unit: ""
     value_type: float
     playbook: "檢查 flowmeter 與管路"

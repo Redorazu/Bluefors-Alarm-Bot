@@ -40,6 +40,14 @@ MAX_ALERT_BLOCKS = 20
 MAX_BLOCK_FIELD_CHARS = 1900
 MULTI_COLUMN_CATEGORIES: frozenset[str | None] = frozenset({"temperature", "pressure"})
 
+WARMUP_CONTEXT_LABEL = "系統升溫中"
+WARMUP_TAG_LABEL = "升溫標籤"
+FULL_MONITOR_LABEL = "完整監控"
+WARMUP_TAG_DISCLAIMER = (
+    "_此標籤僅抑制溫度、壓力、流量與感測器連線示警；"
+    "不會啟動設備升溫程序。壓縮機與 turbo 仍會示警。_"
+)
+
 
 @dataclass
 class SlashResponse:
@@ -52,13 +60,13 @@ HELP_TEXT = """*Bluefors Bot 指令*
 • `/bluefors status <metric_id>` — 單一指標
 • `/bluefors metrics` — 指標清單與追蹤狀態
 • `/bluefors alerts` — 進行中示警
-• `/bluefors phase` — 運行狀態（升溫 / 低溫）
-• `/bluefors warmup` — 升溫模式狀態
-• `/bluefors warmup start [備註]` — 手動啟動升溫模式
-• `/bluefors warmup stop` — 手動結束升溫模式，恢復完整監控
+• `/bluefors phase` — 運行狀態（系統升溫中 / 完整監控）
+• `/bluefors warmup` — 升溫標籤狀態
+• `/bluefors warmup start [備註]` — 手動啟動升溫標籤
+• `/bluefors warmup stop` — 手動關閉升溫標籤，恢復完整監控
 • `/bluefors muted` — 已關閉通知的指標
 • `/bluefors snoozed` — 目前靜音中的指標
-• `/bluefors policy` — warmup + mute + snooze 總覽
+• `/bluefors policy` — 升溫標籤 + mute + snooze 總覽
 • `/bluefors ack <alert_id>` — 確認示警
 • `/bluefors ignore <alert_id>` — 忽略此次異常
 • `/bluefors snooze <metric_id> <分鐘>` — 靜音
@@ -86,9 +94,34 @@ def _severity_emoji(severity: str) -> str:
     )
 
 
-def build_alert_blocks(alert: AlertRecord, mention_channel: bool = False) -> list[dict]:
+def metric_display_name(metric_id: str, metrics: list[MetricConfig] | None = None) -> str:
+    if metrics:
+        for metric in metrics:
+            if metric.id == metric_id:
+                return metric.name
+    return metric_id
+
+
+def format_metric_label(metric_id: str, metrics: list[MetricConfig] | None = None) -> str:
+    name = metric_display_name(metric_id, metrics)
+    if name == metric_id:
+        return f"`{metric_id}`"
+    return f"{name} (`{metric_id}`)"
+
+
+def format_alert_metric_footer(metric_id: str) -> str:
+    return f"metric_id: `{metric_id}`"
+
+
+def build_alert_blocks(
+    alert: AlertRecord,
+    mention_channel: bool = False,
+    *,
+    metrics: list[MetricConfig] | None = None,
+) -> list[dict]:
     emoji = _severity_emoji(alert.severity)
-    header = f"{emoji} {alert.severity.upper()} — {alert.metric_id}"
+    metric_name = metric_display_name(alert.metric_id, metrics)
+    header = f"{emoji} {alert.severity.upper()} — {metric_name}"
     mention = "<!channel> " if mention_channel and alert.severity == "critical" else ""
 
     blocks: list[dict] = [
@@ -117,6 +150,15 @@ def build_alert_blocks(alert: AlertRecord, mention_channel: bool = False) -> lis
         blocks.append(
             {"type": "section", "text": {"type": "mrkdwn", "text": mention}}
         )
+
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": format_alert_metric_footer(alert.metric_id)},
+            ],
+        }
+    )
 
     blocks.append({"type": "divider"})
     blocks.append(
@@ -151,7 +193,7 @@ def build_alert_blocks(alert: AlertRecord, mention_channel: bool = False) -> lis
                 },
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "啟動升溫模式"},
+                    "text": {"type": "plain_text", "text": "啟動升溫標籤"},
                     "action_id": "alert_warmup_start",
                     "value": alert.alert_id,
                     "style": "primary",
@@ -196,18 +238,29 @@ def build_alert_blocks(alert: AlertRecord, mention_channel: bool = False) -> lis
     return blocks
 
 
-def build_recovery_blocks(alert: AlertRecord) -> list[dict]:
+def build_recovery_blocks(
+    alert: AlertRecord,
+    *,
+    metrics: list[MetricConfig] | None = None,
+) -> list[dict]:
+    metric_label = format_metric_label(alert.metric_id, metrics)
     return [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f":white_check_mark: *已恢復* — `{alert.metric_id}`\n"
+                    f":white_check_mark: *已恢復* — {metric_label}\n"
                     f"當前值: {alert.value} | Alert ID: `{alert.alert_id}`"
                 ),
             },
-        }
+        },
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": format_alert_metric_footer(alert.metric_id)},
+            ],
+        },
     ]
 
 
@@ -239,7 +292,9 @@ def format_snapshot_timestamp(fetched_at: datetime) -> str:
 
 def _status_mode_label(warmup_status: dict | None) -> str:
     warmup = warmup_status or {}
-    return "升溫模式" if warmup.get("active") else "低溫模式"
+    if warmup.get("active"):
+        return f"{WARMUP_CONTEXT_LABEL}（{WARMUP_TAG_LABEL}）"
+    return FULL_MONITOR_LABEL
 
 
 def collect_status_groups(
@@ -413,18 +468,27 @@ def build_status_single_blocks(
     )
 
 
-def build_alerts_list_text(alerts: list[AlertRecord]) -> str:
+def build_alerts_list_text(
+    alerts: list[AlertRecord],
+    *,
+    metrics: list[MetricConfig] | None = None,
+) -> str:
     if not alerts:
         return "目前沒有進行中的示警。"
     lines = ["*進行中的示警:*"]
     for a in alerts:
         lines.append(
-            f"• `{a.alert_id}` | {a.metric_id} | {a.severity} | {a.status} | 值={a.value}"
+            f"• `{a.alert_id}` | {format_metric_label(a.metric_id, metrics)} | "
+            f"{a.severity} | {a.status} | 值={a.value}"
         )
     return "\n".join(lines)
 
 
-def build_alerts_list_blocks(alerts: list[AlertRecord]) -> SlashResponse:
+def build_alerts_list_blocks(
+    alerts: list[AlertRecord],
+    *,
+    metrics: list[MetricConfig] | None = None,
+) -> SlashResponse:
     if not alerts:
         return SlashResponse(
             text="目前沒有進行中的示警。",
@@ -453,18 +517,27 @@ def build_alerts_list_blocks(alerts: list[AlertRecord]) -> SlashResponse:
     ]
     for alert in shown:
         emoji = _severity_emoji(alert.severity)
+        metric_label = format_metric_label(alert.metric_id, metrics)
         blocks.append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"{emoji} *{alert.severity.upper()}* — `{alert.metric_id}`",
+                    "text": f"{emoji} *{alert.severity.upper()}* — {metric_label}",
                 },
                 "fields": [
                     {"type": "mrkdwn", "text": f"*記錄值:*\n`{alert.value}`"},
                     {"type": "mrkdwn", "text": f"*狀態:*\n`{alert.status}`"},
                     {"type": "mrkdwn", "text": f"*閾值:*\n`{alert.condition} {alert.threshold}`"},
                     {"type": "mrkdwn", "text": f"*Alert ID:*\n`{alert.alert_id}`"},
+                ],
+            }
+        )
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {"type": "mrkdwn", "text": format_alert_metric_footer(alert.metric_id)},
                 ],
             }
         )
@@ -519,14 +592,14 @@ def _help_commands_text() -> str:
         "• `/bluefors status <metric_id>` — 單一指標\n"
         "• `/bluefors metrics` — 指標清單與追蹤狀態\n"
         "• `/bluefors alerts` — 進行中示警\n"
-        "• `/bluefors phase` — 運行狀態（升溫 / 低溫）\n"
+        "• `/bluefors phase` — 運行狀態（系統升溫中 / 完整監控）\n"
         "• `/bluefors paths` — 檢查 value_path\n"
         "• `/bluefors notifications` — CS 內建通知\n\n"
-        "*升溫模式*\n"
-        "• `/bluefors warmup` — 升溫模式狀態\n"
-        "• `/bluefors warmup start [備註]` — 手動啟動\n"
-        "• `/bluefors warmup stop` — 手動結束，恢復完整監控\n"
-        "• `/bluefors policy` — warmup + mute + snooze 總覽\n\n"
+        "*升溫標籤*\n"
+        "• `/bluefors warmup` — 升溫標籤狀態\n"
+        "• `/bluefors warmup start [備註]` — 手動啟動升溫標籤\n"
+        "• `/bluefors warmup stop` — 手動關閉升溫標籤，恢復完整監控\n"
+        "• `/bluefors policy` — 升溫標籤 + mute + snooze 總覽\n\n"
         "*示警操作*\n"
         "• `/bluefors ack <alert_id>` — 確認示警\n"
         "• `/bluefors ignore <alert_id>` — 忽略此次異常\n"
@@ -673,15 +746,15 @@ def build_metrics_list_blocks(
 
 
 MODE_LABELS = {
-    "warmup": "升溫模式",
-    "cryo_normal": "低溫模式（正常運行）",
+    "warmup": f"{WARMUP_CONTEXT_LABEL}（{WARMUP_TAG_LABEL}）",
+    "cryo_normal": FULL_MONITOR_LABEL,
 }
 
 
 WARMUP_SOURCE_LABELS = {
-    "manual": "手動啟動",
-    "auto_t50k": "自動偵測（t50k）",
-    "auto_4k_heater": "自動偵測（4K heater）",
+    "manual": "手動啟動升溫標籤",
+    "auto_t50k": "自動偵測升溫跡象（t50k）",
+    "auto_4k_heater": "自動偵測 4K heater",
 }
 
 
@@ -707,25 +780,29 @@ def build_warmup_label_blocks(
 ) -> list[dict]:
     source_label = WARMUP_SOURCE_LABELS.get(source, source)
     if source.startswith("auto_") and source not in WARMUP_SOURCE_LABELS:
-        source_label = "自動偵測"
+        source_label = "自動偵測升溫跡象"
     started = _format_iso_or_na(started_at)
     starter = _display_started_by(started_by)
     text_note = f"\n備註: {note}" if note else ""
     return [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": "🔥 升溫模式進行中", "emoji": True},
+            "text": {
+                "type": "plain_text",
+                "text": f"🔥 {WARMUP_CONTEXT_LABEL} — {WARMUP_TAG_LABEL}已啟用",
+                "emoji": True,
+            },
         },
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"*狀態:* 升溫 label 有效中\n"
+                    f"*狀態:* {WARMUP_TAG_LABEL}有效中\n"
                     f"*來源:* {source_label} (`{source}`)\n"
                     f"*啟動者:* {starter}\n"
                     f"*開始時間:* {started}{text_note}\n\n"
-                    "_升溫期間抑制溫度、壓力、流量與感測器連線示警；壓縮機與 turbo 仍會示警。_"
+                    f"{WARMUP_TAG_DISCLAIMER}"
                 ),
             },
         },
@@ -733,8 +810,8 @@ def build_warmup_label_blocks(
 
 
 BASE_TEMP_MODE_REASON_LABELS = {
-    "auto_tmixing": "tmixing 已低於 100 mK（自動進入低溫模式）",
-    "manual": "手動進入低溫模式",
+    "auto_tmixing": "tmixing 已低於 100 mK（自動關閉升溫標籤）",
+    "manual": "手動關閉升溫標籤",
 }
 
 
@@ -745,7 +822,7 @@ def build_base_temp_mode_announcement_blocks(*, tmixing_k: float | None) -> list
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": "❄️ 進入低溫模式",
+                "text": f"❄️ {WARMUP_TAG_LABEL}已關閉 — {FULL_MONITOR_LABEL}已恢復",
                 "emoji": True,
             },
         },
@@ -754,10 +831,10 @@ def build_base_temp_mode_announcement_blocks(*, tmixing_k: float | None) -> list
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"*運行階段:* 低溫模式（正常運行）\n"
+                    f"*運行階段:* {FULL_MONITOR_LABEL}\n"
                     f"*tmixing:* `{tmixing_text}`（低於 100 mK 閾值）\n"
-                    f"*升溫模式:* 已關閉\n\n"
-                    "_完整溫度、壓力、流量與感測器連線示警監控已恢復。_"
+                    f"*{WARMUP_TAG_LABEL}:* 已關閉\n\n"
+                    "_溫度、壓力、流量與感測器連線示警監控已恢復。_"
                 ),
             },
         },
@@ -773,10 +850,10 @@ def build_base_temp_mode_label_blocks(*, reason: str, tmixing_k: float | None) -
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f":snowflake: *已進入低溫模式*\n"
+                    f":snowflake: *{WARMUP_TAG_LABEL}已關閉 — {FULL_MONITOR_LABEL}已恢復*\n"
                     f"觸發方式: {reason_label}\n"
                     f"tmixing: `{tmixing_text}`\n"
-                    f"已恢復完整監控示警。"
+                    f"溫度、壓力、流量與感測器連線示警已恢復。"
                 ),
             },
         }
@@ -785,11 +862,11 @@ def build_base_temp_mode_label_blocks(*, reason: str, tmixing_k: float | None) -
 
 def build_warmup_status_text(status: dict) -> str:
     if not status.get("active"):
-        return "*升溫模式:* 未啟用"
+        return f"*{WARMUP_TAG_LABEL}:* 未啟用"
     source = status.get("source") or "unknown"
     source_label = WARMUP_SOURCE_LABELS.get(source, source)
     lines = [
-        "*升溫模式:* 進行中",
+        f"*{WARMUP_TAG_LABEL}:* 有效中（{WARMUP_CONTEXT_LABEL}）",
         f"• 來源: {source_label} (`{source}`)",
         f"• 啟動者: {_display_started_by(status.get('started_by'))}",
         f"• 開始: {_format_iso_or_na(status.get('started_at'))}",
